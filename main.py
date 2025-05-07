@@ -5,7 +5,11 @@ from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import models
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, confusion_matrix
+)
+import numpy as np
 import mlflow
 import mlflow.pytorch
 
@@ -81,23 +85,55 @@ with mlflow.start_run():
 
         # Validation
         model.eval()
-        y_true, y_pred = [], []
+        y_true, y_pred, y_scores = [], [], []
+
         with torch.no_grad():
             for inputs, labels in val_loader:
                 inputs = inputs.to(device)
                 labels = labels.to(device).float().unsqueeze(1)
+
                 outputs = model(inputs)
-                preds = torch.sigmoid(outputs) > 0.5
-                y_true.extend(labels.cpu().numpy())
-                y_pred.extend(preds.cpu().numpy())
+                scores = torch.sigmoid(outputs)
 
+                preds = scores > 0.5
+
+                y_true.extend(labels.cpu().numpy().squeeze().flatten())
+                y_pred.extend(preds.cpu().numpy().squeeze().flatten())
+                y_scores.extend(scores.cpu().numpy().squeeze().flatten())
+
+
+        # Convert to numpy arrays
+        y_true = np.array(y_true)
+        y_pred = np.array(y_pred)
+        y_scores = np.array(y_scores)
+
+        # Compute metrics
         val_acc = accuracy_score(y_true, y_pred)
+        precision = precision_score(y_true, y_pred)
+        recall = recall_score(y_true, y_pred)
+        f1 = f1_score(y_true, y_pred)
+        roc_auc = roc_auc_score(y_true, y_scores)
 
-        print(f"Epoch {epoch+1}: Loss = {avg_train_loss:.4f}, Val Accuracy = {val_acc:.4f}")
+        # Optional: Confusion matrix
+        cm = confusion_matrix(y_true, y_pred)
+        print("Confusion Matrix:\n", cm)
+
+        print(f"Epoch {epoch+1}:")
+        print(f"  Loss = {avg_train_loss:.4f}")
+        print(f"  Validation Metrics:")
+        print(f"    Accuracy  = {val_acc:.4f}")
+        print(f"    Precision = {precision:.4f}")
+        print(f"    Recall    = {recall:.4f}")
+        print(f"    F1 Score  = {f1:.4f}")
+        print(f"    ROC AUC   = {roc_auc:.4f}")
 
         # Log to MLflow
         mlflow.log_metric("train_loss", avg_train_loss, step=epoch)
         mlflow.log_metric("val_accuracy", val_acc, step=epoch)
+        mlflow.log_metric("val_precision", precision, step=epoch)
+        mlflow.log_metric("val_recall", recall, step=epoch)
+        mlflow.log_metric("val_f1", f1, step=epoch)
+        mlflow.log_metric("val_roc_auc", roc_auc, step=epoch)
 
     # Save model to MLflow
     mlflow.pytorch.log_model(model, "model")
