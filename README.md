@@ -133,11 +133,11 @@ This will:
 1. Query MLflow for the best model based on validation metrics
 2. Register the model in the MLflow Model Registry
 3. Start a local server to serve the model
-4. The model will be available at `http://localhost:5000/invocations`
+4. The model will be available at `http://localhost:1234/invocations`
 
 You can also serve a specific model version using MLflow directly:
 ```bash
-mlflow models serve -m "models:/pneumonia_detection/Production" -p 5000
+mlflow models serve -m "models:/pneumonia_detection/Production" -p 1234
 ```
 
 ## Dataset
