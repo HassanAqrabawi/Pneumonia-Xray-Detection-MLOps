@@ -1,10 +1,9 @@
 import os
 import torch
-from torchvision import datasets, transforms
+from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import models
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score,
     f1_score, roc_auc_score, confusion_matrix
@@ -18,7 +17,6 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Try to configure MLflow, but continue if it fails
 try:
     mlflow.set_tracking_uri("http://localhost:5000")
     mlflow_available = True
@@ -32,81 +30,25 @@ except Exception as e:
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logger.info(f"Using device: {device}")
 
-# Paths
-base_dir = 'chest_xray_split'
-train_dir = os.path.join(base_dir, 'train')
-val_dir = os.path.join(base_dir, 'val')
-test_dir = os.path.join(base_dir, 'test')
-
-# Verify directories exist
-for dir_path in [train_dir, val_dir, test_dir]:
-    if not os.path.exists(dir_path):
-        raise FileNotFoundError(f"Directory not found: {dir_path}")
-
-# Transforms
-IMG_SIZE = 255
-
-train_transforms = transforms.Compose([
-    transforms.Resize((IMG_SIZE, IMG_SIZE)),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomRotation(10),
-    transforms.ToTensor(),
-    transforms.Normalize([0.5], [0.5])  # Grayscale normalization
-])
-
-test_transforms = transforms.Compose([
-    transforms.Resize((IMG_SIZE, IMG_SIZE)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.5], [0.5])
-])
-
-# Datasets
-train_dataset = datasets.ImageFolder(train_dir, transform=train_transforms)
-val_dataset = datasets.ImageFolder(val_dir, transform=test_transforms)
-test_dataset = datasets.ImageFolder(test_dir, transform=test_transforms)
-
-# DataLoaders
-BATCH_SIZE = 32
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-# Class mapping
-class_names = train_dataset.classes
-logger.info(f"Classes: {class_names}")
-
-# Load ResNet18 and modify classifier
-model = models.resnet18(weights='DEFAULT')  # Updated to use new weights parameter
-# Add dropout before the final fully connected layer
-model.fc = nn.Sequential(
-    nn.Dropout(p=0.5),  # 50% dropout
-    nn.Linear(model.fc.in_features, 1)
-)
-model = model.to(device)
-
-# Loss and optimizer
-criterion = nn.BCEWithLogitsLoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-2)  # Add weight decay
-
-def main():
-    with mlflow.start_run() as run:
-        print(f"MLflow Run ID: {run.info.run_id}")
-        # Log parameters
+def train_and_log_model(model, model_name, device, train_loader, val_loader, test_loader, class_names, train_dataset, val_dataset, test_dataset, num_epochs=5, lr=1e-4, batch_size=32, img_size=255):
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-2)
+    mlflow.set_experiment("pneumonia_detection")
+    with mlflow.start_run(run_name=model_name) as run:
+        print(f"\n[MLflow] Run ID: {run.info.run_id} for {model_name}")
         mlflow.log_params({
-            "learning_rate": 1e-4,
-            "batch_size": BATCH_SIZE,
-            "image_size": IMG_SIZE,
-            "model": "ResNet18",
+            "learning_rate": lr,
+            "batch_size": batch_size,
+            "image_size": img_size,
+            "model": model_name,
             "optimizer": "Adam",
             "train_size": len(train_dataset),
             "val_size": len(val_dataset),
             "test_size": len(test_dataset),
             "classes": class_names
         })
-
-        num_epochs = 5
         for epoch in range(num_epochs):
-            print(f"\nEpoch {epoch+1}/{num_epochs}")
+            print(f"\nEpoch {epoch+1}/{num_epochs} [{model_name}]")
             model.train()
             running_loss = 0.0
             for inputs, labels in train_loader:
@@ -118,7 +60,6 @@ def main():
                 optimizer.step()
                 running_loss += loss.item()
             avg_train_loss = running_loss / len(train_loader)
-
             # Validation
             model.eval()
             y_true, y_pred, y_scores = [], [], []
@@ -158,11 +99,9 @@ def main():
                 "val_roc_auc": roc_auc
             }, step=epoch)
             print(f"[MLflow] Metrics logged for epoch {epoch+1}")
-
         # Save model to MLflow
         mlflow.pytorch.log_model(model, "model")
         print("[MLflow] Model saved.")
-
         # Test set evaluation
         model.eval()
         y_true, y_pred, y_scores = [], [], []
@@ -200,6 +139,53 @@ def main():
         print("[MLflow] Test metrics logged.")
         print(f"[MLflow] Run complete. All metrics logged. Run ID: {run.info.run_id}")
 
+def get_dataloaders_and_classes():
+    base_dir = 'chest_xray_split'
+    train_dir = os.path.join(base_dir, 'train')
+    val_dir = os.path.join(base_dir, 'val')
+    test_dir = os.path.join(base_dir, 'test')
+    IMG_SIZE = 255
+    train_transforms = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(10),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5], [0.5])
+    ])
+    test_transforms = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5], [0.5])
+    ])
+    train_dataset = datasets.ImageFolder(train_dir, transform=train_transforms)
+    val_dataset = datasets.ImageFolder(val_dir, transform=test_transforms)
+    test_dataset = datasets.ImageFolder(test_dir, transform=test_transforms)
+    BATCH_SIZE = 32
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    class_names = train_dataset.classes
+    return train_loader, val_loader, test_loader, class_names, train_dataset, val_dataset, test_dataset
+
 if __name__ == "__main__":
     print("Starting training script...")
-    main()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    train_loader, val_loader, test_loader, class_names, train_dataset, val_dataset, test_dataset = get_dataloaders_and_classes()
+
+    # ResNet18
+    resnet = models.resnet18(weights='DEFAULT')
+    resnet.fc = nn.Sequential(nn.Dropout(p=0.5), nn.Linear(resnet.fc.in_features, 1))
+    resnet = resnet.to(device)
+    train_and_log_model(resnet, "ResNet18", device, train_loader, val_loader, test_loader, class_names, train_dataset, val_dataset, test_dataset)
+
+    # MobileNetV2
+    mobilenet = models.mobilenet_v2(weights='DEFAULT')
+    mobilenet.classifier[1] = nn.Linear(mobilenet.classifier[1].in_features, 1)
+    mobilenet = mobilenet.to(device)
+    train_and_log_model(mobilenet, "MobileNetV2", device, train_loader, val_loader, test_loader, class_names, train_dataset, val_dataset, test_dataset)
+
+    # EfficientNetB0
+    efficientnet = models.efficientnet_b0(weights='DEFAULT')
+    efficientnet.classifier[1] = nn.Linear(efficientnet.classifier[1].in_features, 1)
+    efficientnet = efficientnet.to(device)
+    train_and_log_model(efficientnet, "EfficientNetB0", device, train_loader, val_loader, test_loader, class_names, train_dataset, val_dataset, test_dataset)

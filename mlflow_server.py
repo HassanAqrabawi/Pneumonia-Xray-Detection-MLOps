@@ -5,19 +5,10 @@ import webbrowser
 from pathlib import Path
 
 def start_mlflow_server():
-    # Create directories for MLflow
-    mlflow_dir = Path("mlflow_data")
-    mlflow_dir.mkdir(exist_ok=True)
-    
-    # Set environment variables for MLflow
-    os.environ["MLFLOW_TRACKING_URI"] = "http://localhost:5000"
-    
-    # Start MLflow server
+    # Start MLflow server with default backend (mlruns)
     server_process = subprocess.Popen(
         [
             "mlflow", "server",
-            "--backend-store-uri", "sqlite:///mlflow_data/mlflow.db",
-            "--default-artifact-root", "./mlflow_data/artifacts",
             "--host", "0.0.0.0",
             "--port", "5000"
         ],
