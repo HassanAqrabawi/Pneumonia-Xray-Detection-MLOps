@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# MLflow
+mlruns/
+mlflow_data/
+.gradio/
+
+# Model artifacts and data
+mlartifacts/
+*.db
+*.log
+model_metrics_history.json
+
+# Dataset
+chest_xray/
+chest_xray_split/
+
+# OS
+.DS_Store
+Thumbs.db 
